@@ -1,0 +1,12 @@
+[package]
+name = "remotepad-virtual-gamepad"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+remotepad-protocol = { path = "../protocol" }
+thiserror.workspace = true
+tokio.workspace = true
+

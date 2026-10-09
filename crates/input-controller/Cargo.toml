@@ -1,0 +1,11 @@
+[package]
+name = "remotepad-input-controller"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+enigo = "0.3"
+remotepad-protocol = { path = "../protocol" }
+thiserror.workspace = true
+
