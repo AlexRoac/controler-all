@@ -33,6 +33,33 @@ cargo run -p remotepad-server
 
 El servidor muestra el nombre de la laptop, cada IPv4 local válida, una URL, un QR y un PIN temporal. Escanee el QR o abra `http://IP-DE-LA-LAPTOP:8787` en el teléfono, escriba el PIN y pulse **Conectar dispositivo**.
 
+## Ejecutable portable para usuarios
+
+La interfaz web se incrusta dentro del binario de Rust durante la compilación. El usuario final sólo necesita `RemotePad.exe`: no requiere Node.js, Rust, el repositorio ni una carpeta `dist`.
+
+Para generar localmente el ZIP de distribución:
+
+```powershell
+.\scripts\package-windows.ps1
+```
+
+El resultado queda en `release/RemotePad-v0.1.0-windows-x64.zip`. Para indicar otra versión:
+
+```powershell
+.\scripts\package-windows.ps1 -Version 0.2.0
+```
+
+El ejecutable todavía no está firmado con un certificado de firma de código. Windows SmartScreen puede mostrar una advertencia de editor desconocido; no debe ocultarse ni evadirse. Para distribución pública estable conviene firmar el `.exe` y publicar su suma SHA-256.
+
+El workflow `.github/workflows/release.yml` compila y adjunta `RemotePad-windows-x64.zip` automáticamente al publicar una etiqueta:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+También puede ejecutarse manualmente desde **GitHub → Actions → Windows release**; en ese caso genera un artifact descargable pero no crea una publicación pública.
+
 Si Windows Firewall pregunta, permita el ejecutable únicamente en redes privadas. Para detenerlo, use `Ctrl+C`; el servidor libera mouse, teclas, modificadores y gamepad durante el cierre de cada sesión.
 
 ### Desarrollo

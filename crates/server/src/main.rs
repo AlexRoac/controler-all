@@ -1,8 +1,8 @@
 use anyhow::Context;
 use axum::{
-    Json, Router,
+    Json, Router, body::Body,
     extract::{ConnectInfo, State, WebSocketUpgrade, ws::{Message, WebSocket}},
-    http::{HeaderMap, HeaderValue, Method, StatusCode},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -12,12 +12,17 @@ use rand::Rng;
 use remotepad_input_controller::InputController;
 use remotepad_protocol::{ClientMessage, MAX_MESSAGE_BYTES, PROTOCOL_VERSION, PairRequest, PairResponse, SequenceGate, ServerInfo, ServerMessage};
 use remotepad_virtual_gamepad::{DiagnosticGamepad, VirtualGamepadBackend};
+use rust_embed::RustEmbed;
 use sha2::{Digest, Sha256};
-use std::{collections::HashMap, net::{IpAddr, SocketAddr}, path::PathBuf, sync::{Arc, atomic::{AtomicBool, Ordering}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+use std::{collections::HashMap, net::{IpAddr, SocketAddr}, sync::{Arc, atomic::{AtomicBool, Ordering}}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use tokio::sync::Mutex;
-use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::{ServeDir, ServeFile}, trace::TraceLayer};
+use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, trace::TraceLayer};
 use tracing::{info, warn};
 use uuid::Uuid;
+
+#[derive(RustEmbed)]
+#[folder = "../../apps/web/dist/"]
+struct WebAssets;
 
 #[derive(Clone)]
 struct AppState {
@@ -55,14 +60,12 @@ async fn main() -> anyhow::Result<()> {
     addresses.sort(); addresses.dedup();
     let pair_code = format!("{:06}", rand::rng().random_range(0..1_000_000));
     let state = AppState::new(name.clone(), addresses.clone(), port, pair_code.clone());
-    let web_dist = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../apps/web/dist");
-    let index = web_dist.join("index.html");
     let cors = allowed_cors()?;
     let app = Router::new()
         .route("/api/info", get(info_handler))
         .route("/api/pair", post(pair_handler))
         .route("/ws", get(ws_handler))
-        .fallback_service(ServeDir::new(&web_dist).not_found_service(ServeFile::new(index)))
+        .fallback(get(static_handler))
         .layer(RequestBodyLimitLayer::new(MAX_MESSAGE_BYTES))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -82,6 +85,26 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(shutdown_signal()).await?;
     cleanup(&state).await;
     Ok(())
+}
+
+async fn static_handler(uri: Uri) -> Response {
+    let requested = uri.path().trim_start_matches('/');
+    let requested = if requested.is_empty() { "index.html" } else { requested };
+    let (asset, served_path, immutable) = match WebAssets::get(requested) {
+        Some(asset) => (asset, requested, requested.starts_with("assets/")),
+        None => match WebAssets::get("index.html") {
+            Some(index) => (index, "index.html", false),
+            None => return (StatusCode::INTERNAL_SERVER_ERROR, "embedded web application is missing").into_response(),
+        },
+    };
+    let mime = mime_guess::from_path(served_path).first_or_octet_stream();
+    let cache = if immutable { "public, max-age=31536000, immutable" } else { "no-cache" };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime.as_ref())
+        .header(header::CACHE_CONTROL, cache)
+        .body(Body::from(asset.data.into_owned()))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 fn allowed_cors() -> anyhow::Result<CorsLayer> {
